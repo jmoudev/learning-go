@@ -18,11 +18,42 @@ func PrintRandomGreeting(wg *sync.WaitGroup) {
 func main() {
 	numNames := 10
 
-	var wg sync.WaitGroup
-	wg.Add(numNames)
+	var wgNames sync.WaitGroup
+	var wgMessages sync.WaitGroup
+	wgNames.Add(numNames)
+	wgMessages.Add(numNames)
+
+	var names_ = make(chan string)
+	var messages = make(chan string)
 
 	for range numNames {
-		go PrintRandomGreeting(&wg)
+		go func() {
+			defer wgNames.Done()
+			name := names.GetRandomNameDelayed()
+			names_ <- name
+		}()
 	}
-	wg.Wait()
+
+	go func() {
+		wgNames.Wait()
+		close(names_)
+	}()
+
+	for name := range names_ {
+		go func() {
+			defer wgMessages.Done()
+			message := greeting.HelloDelayed(name)
+			messages <- message
+		}()
+	}
+
+	go func() {
+		wgMessages.Wait()
+		close(messages)
+	}()
+
+	for message := range messages {
+		fmt.Println(message)
+	}
+
 }
