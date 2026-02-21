@@ -7,34 +7,53 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-func PortConnect(url string, port int) bool {
-	address := fmt.Sprintf("%s:%d", url, port)
-	conn, err := net.DialTimeout("tcp", address, time.Second * 2)
+func PortConnect(wg *sync.WaitGroup, ok_ports chan int, url string, port int) {
+	defer wg.Done()
+
+	address := net.JoinHostPort(url, strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", address, time.Second*2)
 
 	if err != nil {
-		return false
+		return
 	}
+
 	conn.Close()
-	return true
+	ok_ports <- port
+	return
 }
 
-// TODO: Scan a range of ports concurrently with url input
 // TODO: Add CLI
 func main() {
-	golang_url := "golang.org"
-
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Enter port: ")
+	fmt.Print("Enter url: ")
 	input, _ := reader.ReadString('\n')
-	port, _ := strconv.Atoi(strings.TrimSpace(input))
+	url := strings.TrimSpace(input)
 
-	fmt.Printf("Scanning port %d of %s\n", port, golang_url)
+	port_start := 10
+	port_end := 1000
+	num_ports := port_end - port_start
 
-	ok := PortConnect(golang_url, port)
-	if ok {
+	var wg sync.WaitGroup
+	wg.Add(num_ports)
+	var ok_ports = make(chan int)
+
+	fmt.Printf("Scanning ports %s of %s\n", fmt.Sprintf("%d-%d", port_start, port_end), url)
+
+	// Goroutine PortConnect asyncronously checks open ports
+	for port := port_start; port < port_end; port++ {
+		go PortConnect(&wg, ok_ports, url, port)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ok_ports)
+	}()
+
+	for port := range ok_ports {
 		fmt.Printf("Port %d OK\n", port)
 	}
 }
