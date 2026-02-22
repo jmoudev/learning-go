@@ -1,17 +1,19 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/urfave/cli/v3"
 )
 
-func PortConnect(wg *sync.WaitGroup, ok_ports chan int, url string, port int) {
+func PortConnect(wg *sync.WaitGroup, okPorts chan int, url string, port int) {
 	defer wg.Done()
 
 	address := net.JoinHostPort(url, strconv.Itoa(port))
@@ -22,38 +24,67 @@ func PortConnect(wg *sync.WaitGroup, ok_ports chan int, url string, port int) {
 	}
 
 	conn.Close()
-	ok_ports <- port
+	okPorts <- port
 	return
 }
 
-// TODO: Add CLI
-func main() {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Enter url: ")
-	input, _ := reader.ReadString('\n')
-	url := strings.TrimSpace(input)
-
-	port_start := 10
-	port_end := 1000
-	num_ports := port_end - port_start
+func ScanPorts(url string, startPort int, endPort int) {
+	numPorts := endPort - startPort
 
 	var wg sync.WaitGroup
-	wg.Add(num_ports)
-	var ok_ports = make(chan int)
+	wg.Add(numPorts)
+	var okPorts = make(chan int)
 
-	fmt.Printf("Scanning ports %s of %s\n", fmt.Sprintf("%d-%d", port_start, port_end), url)
+	fmt.Printf("Scanning ports %s of %s\n", fmt.Sprintf("%d-%d", startPort, endPort), url)
 
 	// Goroutine PortConnect asyncronously checks open ports
-	for port := port_start; port < port_end; port++ {
-		go PortConnect(&wg, ok_ports, url, port)
+	for port := startPort; port < endPort; port++ {
+		go PortConnect(&wg, okPorts, url, port)
 	}
 
 	go func() {
 		wg.Wait()
-		close(ok_ports)
+		close(okPorts)
 	}()
 
-	for port := range ok_ports {
+	for port := range okPorts {
 		fmt.Printf("Port %d OK\n", port)
+	}
+}
+
+func main() {
+	cmd := &cli.Command{
+		Name:      "port-scanner",
+		Usage:     "Scan a number of ports for a given url",
+		ArgsUsage: "<url>",
+		Arguments: []cli.Argument{
+			&cli.StringArg{
+				Name: "url",
+			},
+		},
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:  "startPort",
+				Value: 1,
+				Usage: "The lowest port in the port range",
+			},
+			&cli.IntFlag{
+				Name:  "endPort",
+				Value: 1000,
+				Usage: "The highest port in the port range",
+			},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			url := cmd.StringArg("url")
+			startPort := cmd.Int("startPort")
+			endPort := cmd.Int("endPort")
+
+			ScanPorts(url, startPort, endPort)
+			return nil
+		},
+	}
+
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		log.Fatal(err)
 	}
 }
